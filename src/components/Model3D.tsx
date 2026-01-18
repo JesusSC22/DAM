@@ -64,25 +64,31 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
   const ref = useRef<THREE.Group>(null);
   const wireframeGroupRef = useRef<THREE.Group | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const viewerWireframe = useAppStore((state) => state.viewerWireframe);
   
   // Validar URL antes de cargar (sin revocar - el cache en db.ts gestiona las blob URLs)
   useEffect(() => {
-    if (!url) {
+    if (!url || url.trim() === '') {
       logger.uploadedModel.error("URL vacía o no definida");
       setIsLoading(false);
+      setLoadError("URL vacía o no definida");
       return;
     }
     
     logger.uploadedModel.debug("Cargando modelo desde URL:", url);
     setIsLoading(true);
+    setLoadError(null);
 
     // Verificar que la blob URL sea válida (solo validación, no revocación)
     if (url.startsWith('blob:')) {
       fetch(url)
         .then(response => {
           if (!response.ok) {
-            logger.uploadedModel.error(`Error al acceder al blob: ${response.status}`);
+            const errorMsg = `Error al acceder al blob: ${response.status}`;
+            logger.uploadedModel.error(errorMsg);
+            setLoadError(errorMsg);
+            setIsLoading(false);
             return;
           }
           return response.blob();
@@ -90,14 +96,20 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
         .then(blob => {
           if (blob) {
             if (blob.size === 0) {
-              logger.uploadedModel.error("El archivo blob está vacío");
+              const errorMsg = "El archivo blob está vacío";
+              logger.uploadedModel.error(errorMsg);
+              setLoadError(errorMsg);
+              setIsLoading(false);
             } else {
               logger.uploadedModel.debug("Blob válido, tamaño:", blob.size, "bytes");
             }
           }
         })
         .catch(err => {
-          logger.uploadedModel.error("Error validando blob URL:", err);
+          const errorMsg = `Error validando blob URL: ${err.message}`;
+          logger.uploadedModel.error(errorMsg, err);
+          setLoadError(errorMsg);
+          setIsLoading(false);
         });
     }
     // NOTA: NO revocamos blob URLs aquí porque están gestionadas por el cache en db.ts
@@ -105,16 +117,27 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
   }, [url]);
 
   // Usar useLoader con nuestro loader personalizado que tiene Draco preconfigurado
+  // useLoader puede lanzar excepciones si la URL es inválida - el ErrorBoundary lo capturará
+  // NOTA: No podemos usar try-catch aquí porque useLoader es un hook y debe ejecutarse siempre
+  // Si la URL es inválida, useLoader lanzará una excepción que será capturada por el ErrorBoundary
   const gltf = useLoader(GLTFLoaderWithDraco, url);
-  const scene = gltf.scene;
+  const scene = gltf?.scene || null;
   
   // Marcar como cargado cuando el modelo está listo
   useEffect(() => {
     if (scene) {
       setIsLoading(false);
+      setLoadError(null);
       logger.uploadedModel.debug("Modelo cargado correctamente");
     }
   }, [scene]);
+
+  // Si hay un error, marcar como no cargando para que el ErrorBoundary pueda manejarlo
+  useEffect(() => {
+    if (loadError) {
+      setIsLoading(false);
+    }
+  }, [loadError]);
   
   React.useEffect(() => {
     if (scene) {
@@ -237,8 +260,15 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
   });
 
   // No renderizar nada hasta que el modelo esté completamente cargado
-  // Esto evita que el fallback del Suspense se quede visible
+  // Si hay un error, el ErrorBoundary lo capturará y mostrará el fallback
+  // Si isLoading es true o no hay scene, retornar null (el Suspense maneja la carga)
   if (isLoading || !scene) {
+    // Si hay un error de carga y ya no estamos cargando, lanzar error para el ErrorBoundary
+    if (loadError && !isLoading) {
+      logger.uploadedModel.error("No se puede renderizar modelo debido a error:", loadError);
+      // Lanzar error para que el ErrorBoundary lo capture
+      throw new Error(loadError);
+    }
     return null;
   }
 

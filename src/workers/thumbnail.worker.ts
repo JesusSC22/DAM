@@ -24,13 +24,15 @@ class ThumbnailGeneratorWorker {
     // Configurar GLTFLoader con DRACOLoader local (CSP compatible)
     this.loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
+    // Usar ruta relativa - Vite debería resolverla correctamente
+    // La ruta /draco/gltf/ se resolverá contra el origen de la página principal
     dracoLoader.setDecoderPath('/draco/gltf/');
     dracoLoader.preload();
     this.loader.setDRACOLoader(dracoLoader);
     
     // Logger simple para workers (no puede importar el logger común)
     if (import.meta.env.DEV) {
-      console.debug('[ThumbnailWorker] DRACOLoader configurado con path local:', '/draco/gltf/');
+      console.debug('[ThumbnailWorker] DRACOLoader configurado con path: /draco/gltf/');
     }
 
     this.setupLighting();

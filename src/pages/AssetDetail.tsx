@@ -27,18 +27,35 @@ export const AssetDetail: React.FC = () => {
             setIsLoading(true);
             setIsInitialLoad(true); // Resetear la bandera de carga inicial
             try {
-                // Intentar obtener asset varias veces con retry
+                // Intentar obtener asset con retry limitado y manejo de rate limiting
                 let loadedAsset: Asset | undefined = undefined;
                 let attempts = 0;
-                const maxAttempts = 3;
+                const maxAttempts = 2; // Reducir a 2 intentos para evitar 429
+                let lastError: any = null;
                 
                 while (!loadedAsset && attempts < maxAttempts) {
-                    loadedAsset = await getAssetFull(id);
-                    if (!loadedAsset || !loadedAsset.url) {
+                    try {
+                        loadedAsset = await getAssetFull(id);
+                        if (!loadedAsset || !loadedAsset.url) {
+                            attempts++;
+                            // Solo retry si no fue un error 429
+                            if (attempts < maxAttempts && lastError?.status !== 429) {
+                                // Esperar más tiempo antes de reintentar (exponencial backoff)
+                                await new Promise(resolve => setTimeout(resolve, 2000 * attempts));
+                            } else {
+                                break; // Si es 429 o último intento, salir
+                            }
+                        }
+                    } catch (error: any) {
+                        lastError = error;
+                        // Si es 429 (Too Many Requests), no hacer retry
+                        if (error?.status === 429 || error?.response?.status === 429) {
+                            logger.assetDetail.warn('Rate limit alcanzado (429), no reintentando');
+                            break;
+                        }
                         attempts++;
                         if (attempts < maxAttempts) {
-                            // Esperar un poco antes de reintentar
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            await new Promise(resolve => setTimeout(resolve, 2000 * attempts));
                         }
                     }
                 }
