@@ -53,3 +53,20 @@ export const formatFileSize = (bytes: number): string => {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 };
 
+/**
+ * Detecta si la app está en modo demo (sin servidor disponible)
+ * Esto ocurre cuando:
+ * - SERVER_URL está vacío
+ * - SERVER_URL apunta a localhost (en producción)
+ * - Estamos en GitHub Pages
+ */
+export const isDemoMode = (): boolean => {
+  const serverUrl = SERVER_URL;
+  if (!serverUrl || serverUrl.trim() === '') return true;
+  if (serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) {
+    // En producción, localhost no funciona
+    return window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  }
+  return false;
+};
+

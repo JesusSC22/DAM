@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { Sidebar } from '../components/Sidebar';
 import { GalleryView } from '../components/GalleryView';
 import { UploadModal } from '../components/UploadModal';
@@ -9,10 +10,11 @@ import { LoadingSpinner } from '../components/LoadingSpinner';
 import { useAssets } from '../context/AssetContext';
 import { useAppStore } from '../store/useAppStore';
 import { categories } from '../data/assets';
-import { Box, Search, Settings, Upload, Wifi, WifiOff } from 'lucide-react';
+import { Box, Search, Settings, Upload, Wifi, WifiOff, Info } from 'lucide-react';
 import { Asset } from '../types';
 import { useDebounce } from '../hooks/useDebounce';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
+import { isDemoMode } from '../config/constants';
 
 export const Home: React.FC = () => {
   const navigate = useNavigate();
@@ -106,8 +108,20 @@ export const Home: React.FC = () => {
     },
   });
 
+  const demoMode = isDemoMode();
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden font-sans text-gray-900 dark:text-gray-100 transition-colors duration-200">
+      
+      {/* Banner de Modo Demo */}
+      {demoMode && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-6 py-2 flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
+          <Info size={16} />
+          <span>
+            <strong>Modo Demo:</strong> Funcionalidad limitada. Solo visualización de modelos existentes. Para funcionalidad completa, ejecuta el servidor localmente.
+          </span>
+        </div>
+      )}
       
       {isUploadModalOpen && (
         <UploadModal 
@@ -155,8 +169,20 @@ export const Home: React.FC = () => {
              </div>
            )}
            <button 
-             onClick={() => setUploadModalOpen(true)}
-             className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium shadow-sm shadow-blue-200 dark:shadow-blue-900/20"
+             onClick={() => {
+               if (demoMode) {
+                 toast.error('Modo Demo: No se pueden subir archivos. Ejecuta el servidor localmente para funcionalidad completa.');
+                 return;
+               }
+               setUploadModalOpen(true);
+             }}
+             disabled={demoMode}
+             className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm font-medium shadow-sm ${
+               demoMode 
+                 ? 'bg-gray-400 dark:bg-gray-700 text-gray-300 dark:text-gray-500 cursor-not-allowed' 
+                 : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 dark:shadow-blue-900/20'
+             }`}
+             title={demoMode ? 'No disponible en modo demo' : 'Subir nuevo modelo'}
            >
               <Upload size={18} />
               <span>Subir Modelo</span>
