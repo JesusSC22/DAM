@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAssets } from '../context/AssetContext';
 import { useAppStore } from '../store/useAppStore';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { categories } from '../data/assets';
 import { Asset } from '../types';
-import { Box, ArrowLeft, Trash2, CheckSquare, Square, Database } from 'lucide-react';
+import { Box, ArrowLeft, Trash2, CheckSquare, Square, Database, HardDrive } from 'lucide-react';
+import { SERVER_URL } from '../config/constants';
 
 export const DatabaseManagement: React.FC = () => {
   const navigate = useNavigate();
@@ -25,6 +26,16 @@ export const DatabaseManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'category'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [storageInfo, setStorageInfo] = useState<{
+    used: number;
+    usedFormatted: string;
+    fileCount: number;
+    estimatedTotal: number;
+    estimatedTotalFormatted: string;
+    available: number;
+    availableFormatted: string;
+    usedPercentage: number;
+  } | null>(null);
 
   // Simular EXACTAMENTE los mismos filtros que en Home para ver qué se está filtrando
   const filteredAssetsInGallery = useMemo(() => {
@@ -126,6 +137,28 @@ export const DatabaseManagement: React.FC = () => {
     }
   };
 
+  // Obtener información de almacenamiento
+  useEffect(() => {
+    const fetchStorageInfo = async () => {
+      if (!SERVER_URL || SERVER_URL.trim() === '') return;
+      
+      try {
+        const response = await fetch(`${SERVER_URL}/api/storage/info`);
+        if (response.ok) {
+          const data = await response.json();
+          setStorageInfo(data);
+        }
+      } catch (error) {
+        console.error('Error fetching storage info:', error);
+      }
+    };
+
+    fetchStorageInfo();
+    // Actualizar cada 30 segundos
+    const interval = setInterval(fetchStorageInfo, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const getCategoryName = (categoryId: string) => {
     return categories.find(c => c.id === categoryId)?.name || categoryId;
   };
@@ -139,6 +172,14 @@ export const DatabaseManagement: React.FC = () => {
   };
 
   const selectedCount = selectedAssets.size;
+  
+  // Calcular color de la barra según el porcentaje usado
+  const getStorageColor = (percentage: number) => {
+    if (percentage < 50) return 'bg-green-500';
+    if (percentage < 75) return 'bg-yellow-500';
+    if (percentage < 90) return 'bg-orange-500';
+    return 'bg-red-500';
+  };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50 dark:bg-gray-950 overflow-hidden font-sans text-gray-900 dark:text-gray-100 transition-colors duration-200">
@@ -171,6 +212,23 @@ export const DatabaseManagement: React.FC = () => {
                 </>
               )}
             </div>
+            {/* Indicador de almacenamiento */}
+            {storageInfo && (
+              <div className="mt-2 flex items-center gap-2">
+                <HardDrive size={14} className="text-gray-400" />
+                <div className="flex items-center gap-2">
+                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 ${getStorageColor(storageInfo.usedPercentage)}`}
+                      style={{ width: `${Math.min(100, storageInfo.usedPercentage)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {storageInfo.usedPercentage.toFixed(1)}% usado ({storageInfo.usedFormatted} / {storageInfo.estimatedTotalFormatted})
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           </div>
         </div>

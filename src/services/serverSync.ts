@@ -14,104 +14,55 @@
 
 import { Asset } from '../types';
 import { logger } from '../utils/logger';
-import { saveAssetToDb } from './db';
 import { SERVER_URL } from '../config/constants';
 
 /**
- * Sincroniza TODOS los assets DESDE el servidor hacia IndexedDB local
- * Esta es la función principal para mantener sincronización
+ * Obtiene TODOS los assets DESDE el servidor (solo metadata y URLs, sin descargar archivos)
+ * Esta función actualiza el estado en AssetContext directamente
  */
-export const syncFromServer = async (): Promise<boolean> => {
-  // Si no hay servidor configurado (modo demo), no intentar sincronizar
+export const syncFromServer = async (): Promise<Asset[]> => {
+  // Si no hay servidor configurado (modo demo), retornar array vacío
   if (!SERVER_URL || SERVER_URL.trim() === '') {
     logger.default.debug("Modo demo: No hay servidor configurado, omitiendo sincronización");
-    return false;
+    return [];
   }
   
   try {
     const response = await fetch(`${SERVER_URL}/api/assets`);
     if (!response.ok) {
-      logger.default.warn("Error sincronizando desde servidor:", response.status);
-      return false;
+      logger.default.warn("Error obteniendo assets desde servidor:", response.status);
+      return [];
     }
 
     const serverAssets = await response.json();
     if (!Array.isArray(serverAssets)) {
       logger.default.warn("Respuesta del servidor no es un array");
-      return false;
+      return [];
     }
 
-    logger.assetContext.info(`Sincronizando ${serverAssets.length} assets desde servidor...`);
+    logger.assetContext.info(`Obteniendo ${serverAssets.length} assets desde servidor...`);
 
-    let syncedCount = 0;
-    for (const asset of serverAssets) {
-      try {
-        // Construir URLs completas
-        const fixUrl = (u: string) => u?.startsWith('http') ? u : `${SERVER_URL}${u}`;
-        
-        if (!asset.url) continue;
+    // Construir URLs completas para cada asset
+    const assetsWithUrls = serverAssets.map((asset: any) => {
+      const fixUrl = (u: string | undefined) => {
+        if (!u) return '';
+        return u.startsWith('http') ? u : `${SERVER_URL}${u}`;
+      };
 
-        // Descargar archivos del servidor
-        const glbResp = await fetch(fixUrl(asset.url));
-        if (!glbResp.ok) continue;
-        const glbBlob = await glbResp.blob();
+      return {
+        ...asset,
+        url: fixUrl(asset.url),
+        thumbnail: fixUrl(asset.thumbnail),
+        unityPackageUrl: asset.unityPackageUrl ? fixUrl(asset.unityPackageUrl) : undefined,
+        fbxZipUrl: asset.fbxZipUrl ? fixUrl(asset.fbxZipUrl) : undefined,
+      } as Asset;
+    });
 
-        let thumbnailBlob = null;
-        if (asset.thumbnail) {
-          try {
-            const thumbResp = await fetch(fixUrl(asset.thumbnail));
-            if (thumbResp.ok) thumbnailBlob = await thumbResp.blob();
-          } catch (e) {
-            logger.default.debug("Fallo descarga thumbnail", asset.name);
-          }
-        }
-
-        let unityBlob = null;
-        if (asset.unityPackageUrl) {
-          try {
-            const uResp = await fetch(fixUrl(asset.unityPackageUrl));
-            if (uResp.ok) unityBlob = await uResp.blob();
-          } catch (e) {
-            // Archivos opcionales
-          }
-        }
-        
-        let zipBlob = null;
-        if (asset.fbxZipUrl) {
-          try {
-            const zResp = await fetch(fixUrl(asset.fbxZipUrl));
-            if (zResp.ok) zipBlob = await zResp.blob();
-          } catch (e) {
-            // Archivos opcionales
-          }
-        }
-
-        // Limpiar URLs del objeto asset (se almacenan como blobs en IndexedDB)
-        const assetToSave = { ...asset };
-        delete assetToSave.url;
-        delete assetToSave.thumbnail;
-        delete assetToSave.unityPackageUrl;
-        delete assetToSave.fbxZipUrl;
-
-        // Guardar en IndexedDB local (cache)
-        await saveAssetToDb(assetToSave, {
-          glb: glbBlob,
-          thumbnail: thumbnailBlob,
-          unity: unityBlob,
-          zip: zipBlob
-        });
-
-        syncedCount++;
-      } catch (err) {
-        logger.assetContext.warn("Error sincronizando asset individual:", err);
-      }
-    }
-
-    logger.assetContext.info(`Sincronización completada: ${syncedCount}/${serverAssets.length} assets`);
-    return true;
+    logger.assetContext.info(`Sincronización completada: ${assetsWithUrls.length} assets`);
+    return assetsWithUrls;
   } catch (error) {
     logger.default.warn("Servidor no disponible para sincronización:", error);
-    return false;
+    return [];
   }
 };
 

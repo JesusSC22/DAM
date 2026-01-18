@@ -473,6 +473,62 @@ app.put('/api/assets/:id/files', strictUploadLimiter, (req, res, next) => {
 });
 
 // DELETE /api/assets/:id
+// Endpoint para obtener información de almacenamiento
+app.get('/api/storage/info', uploadLimiter, (req, res) => {
+  try {
+    const uploadsPath = UPLOADS_DIR;
+    
+    // Calcular tamaño total de archivos en uploads
+    let totalSize = 0;
+    let fileCount = 0;
+    
+    if (fs.existsSync(uploadsPath)) {
+      const files = fs.readdirSync(uploadsPath);
+      
+      files.forEach(file => {
+        const filePath = path.join(uploadsPath, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (stats.isFile()) {
+            totalSize += stats.size;
+            fileCount++;
+          }
+        } catch (err) {
+          // Ignorar errores al leer archivos individuales
+        }
+      });
+    }
+    
+    // Estimación de almacenamiento disponible (plan gratuito Railway: ~500 MB - 1 GB)
+    // Usamos 500 MB como referencia conservadora
+    const estimatedTotal = 500 * 1024 * 1024; // 500 MB
+    const usedPercentage = Math.min(100, (totalSize / estimatedTotal) * 100);
+    
+    res.json({
+      used: totalSize,
+      usedFormatted: formatBytes(totalSize),
+      fileCount: fileCount,
+      estimatedTotal: estimatedTotal,
+      estimatedTotalFormatted: formatBytes(estimatedTotal),
+      available: Math.max(0, estimatedTotal - totalSize),
+      availableFormatted: formatBytes(Math.max(0, estimatedTotal - totalSize)),
+      usedPercentage: Math.round(usedPercentage * 10) / 10 // Redondear a 1 decimal
+    });
+  } catch (error) {
+    console.error('Error calculating storage info:', error);
+    res.status(500).json({ error: 'Error calculating storage information' });
+  }
+});
+
+// Helper function para formatear bytes
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
+
 app.delete('/api/assets/:id', uploadLimiter, (req, res) => {
   try {
     // Validar ID

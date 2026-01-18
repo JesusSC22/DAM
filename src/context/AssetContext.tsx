@@ -1,16 +1,6 @@
-import React, { createContext, useContext, useEffect, ReactNode, useRef } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import React, { createContext, useContext, useEffect, ReactNode, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Asset } from '../types';
-import { 
-  db, 
-  initDB, 
-  saveAssetToDb, 
-  deleteAssetFromDb, 
-  updateAssetInDb, 
-  getAssetWithBlobs 
-} from '../services/db';
-import { thumbnailGenerator } from '../services/thumbnailGenerator';
 import { logger } from '../utils/logger';
 import {
   syncFromServer,
@@ -19,13 +9,13 @@ import {
   updateAssetFilesOnServer,
   deleteAssetFromServer
 } from '../services/serverSync';
-import { useAppStore } from '../store/useAppStore';
-import { SYNC_INTERVAL, formatFileSize } from '../config/constants';
+import { useAppStore } from './store/useAppStore';
+import { SYNC_INTERVAL } from '../config/constants';
 
 interface AssetContextType {
   assets: Asset[];
   getAsset: (id: string) => Asset | undefined; // Returns metadata from list
-  getAssetFull: (id: string) => Promise<Asset | undefined>; // Returns full asset with blobs/URLs
+  getAssetFull: (id: string) => Promise<Asset | undefined>; // Returns full asset with URLs from server
   addAsset: (newAsset: Asset, files: { glb: File, thumbnail: File | null, unity: File | null, zip: File | null }) => Promise<void>;
   deleteAsset: (asset: Asset) => Promise<void>;
   deleteAssets: (assets: Asset[]) => Promise<void>; // Delete multiple assets
@@ -40,31 +30,25 @@ interface AssetContextType {
 const AssetContext = createContext<AssetContextType | undefined>(undefined);
 
 export function AssetProvider({ children }: { children: ReactNode }) {
-  // Keep a single init promise to avoid racing migrations / double work
-  const initPromiseRef = useRef<Promise<void> | null>(null);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const { setLoading, setSyncing } = useAppStore();
   
-  // Initialize DB and sync from server
+  // Cargar assets desde el servidor al iniciar
   useEffect(() => {
-    if (!initPromiseRef.current) {
-      initPromiseRef.current = initDB();
-    }
-    initPromiseRef.current
-      .then(async () => {
-        // Después de inicializar IndexedDB, sincronizar desde el servidor (fuente de verdad)
-        logger.assetContext.debug("Sincronizando desde servidor al iniciar...");
-        setSyncing(true);
-        try {
-          await syncFromServer();
-        } catch (error) {
-          logger.assetContext.warn("Error sincronizando desde servidor al iniciar:", error);
-        } finally {
-          setSyncing(false);
-        }
-      })
-      .catch((error) => {
-        logger.assetContext.error('Error initializing database:', error);
-      });
+    const loadAssets = async () => {
+      logger.assetContext.debug("Cargando assets desde servidor al iniciar...");
+      setSyncing(true);
+      try {
+        const serverAssets = await syncFromServer();
+        setAssets(serverAssets);
+      } catch (error) {
+        logger.assetContext.warn("Error cargando assets desde servidor al iniciar:", error);
+      } finally {
+        setSyncing(false);
+      }
+    };
+    
+    loadAssets();
   }, [setSyncing]);
 
   // Sincronización periódica cada 30 segundos (mantener datos actualizados desde otras ventanas)
@@ -73,7 +57,8 @@ export function AssetProvider({ children }: { children: ReactNode }) {
     const syncInterval = setInterval(async () => {
       logger.assetContext.debug("Sincronización periódica desde servidor...");
       try {
-        await syncFromServer();
+        const serverAssets = await syncFromServer();
+        setAssets(serverAssets);
       } catch (error) {
         logger.assetContext.debug("Error en sincronización periódica:", error);
       }
@@ -89,7 +74,8 @@ export function AssetProvider({ children }: { children: ReactNode }) {
     const handleFocus = async () => {
       logger.assetContext.debug("Ventana recuperó foco, sincronizando desde servidor...");
       try {
-        await syncFromServer();
+        const serverAssets = await syncFromServer();
+        setAssets(serverAssets);
       } catch (error) {
         logger.assetContext.debug("Error sincronizando al recuperar foco:", error);
       }
@@ -100,108 +86,60 @@ export function AssetProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
-  // Live Query for Assets List (Metadata only)
-  // We use useLiveQuery to automatically update when DB changes
-  const assets = useLiveQuery(
-    async () => {
-      // We explicitly cast because the DB stores StoredAsset but we want to return Asset compatible objects
-      // Note: These assets will NOT have valid 'url' for GLB, as that's in 'files' table.
-      // They WILL have 'thumbnailBlob' if available.
-      const items = await db.assets.toArray();
-      
-      // Calcular fileSize para cada asset si no existe
-      const assetsWithSize = await Promise.all(
-        items.map(async (item) => {
-          // StoredAsset omite url/thumbnail pero puede tenerlos en datos legacy
-          const legacyAsset = item as unknown as Partial<Asset>;
-          
-          // Si ya tiene fileSize, usarlo
-          let fileSize = item.fileSize;
-          
-          // Si no tiene fileSize, calcularlo desde el blob del GLB
-          if (!fileSize) {
-            const files = await db.files.get(item.id);
-            if (files?.glb && files.glb instanceof Blob) {
-              fileSize = formatFileSize(files.glb.size);
-            }
-          }
-          
-          return {
-            ...item,
-            url: legacyAsset.url || '', // Placeholder or legacy URL
-            thumbnail: legacyAsset.thumbnail || '', // Placeholder or legacy URL
-            unityPackageUrl: legacyAsset.unityPackageUrl,
-            fbxZipUrl: legacyAsset.fbxZipUrl,
-            fileSize // Incluir fileSize calculado
-          } as Asset;
-        })
-      );
-      
-      return assetsWithSize;
-    },
-    []
-  ) || [];
-
   const getAsset = (id: string) => {
     return assets.find(a => a.id === id);
   };
 
-  const getAssetFull = async (id: string) => {
-    // Ensure DB initialization/migration has finished before trying to read blobs
-    if (!initPromiseRef.current) {
-      initPromiseRef.current = initDB();
-    }
-    try {
-      await initPromiseRef.current;
-    } catch {
-      // If init fails (e.g. server offline) we still attempt to read whatever exists locally
-    }
-    return await getAssetWithBlobs(id);
+  const getAssetFull = async (id: string): Promise<Asset | undefined> => {
+    // Obtener asset directamente del estado (ya tiene URLs del servidor)
+    return assets.find(a => a.id === id);
   };
 
   const addAsset = async (newAsset: Asset, files: { glb: File, thumbnail: File | null, unity: File | null, zip: File | null }) => {
-    setLoading(true, 'Guardando modelo...');
+    setLoading(true, 'Subiendo modelo al servidor...');
     try {
-      // 1. Guardar en IndexedDB local (siempre primero para tener datos localmente)
-      await saveAssetToDb(newAsset, files);
-      
-      // 2. Sincronizar con servidor (en paralelo, no bloquea si falla)
-      setLoading(true, 'Sincronizando con servidor...');
-      await syncAssetToServer(newAsset, {
+      // Subir directamente al servidor
+      const success = await syncAssetToServer(newAsset, {
         glb: files.glb,
         thumbnail: files.thumbnail,
         unity: files.unity,
         zip: files.zip
-      }).catch(() => {
-        // Si falla la sincronización, solo logueamos - no bloqueamos el flujo
-        logger.assetContext.debug("Sincronización con servidor falló, pero asset guardado localmente");
       });
       
-      toast.success('Modelo guardado correctamente');
+      if (!success) {
+        throw new Error('Error al subir el modelo al servidor');
+      }
+      
+      // Recargar assets desde el servidor para obtener las URLs correctas
+      const serverAssets = await syncFromServer();
+      setAssets(serverAssets);
+      
+      toast.success('Modelo subido correctamente');
     } catch (error) {
-      logger.assetContext.error("Error guardando el asset:", error);
-      toast.error('Hubo un error guardando el modelo localmente');
+      logger.assetContext.error("Error subiendo el asset:", error);
+      toast.error('Hubo un error subiendo el modelo al servidor');
     } finally {
       setLoading(false);
     }
   };
 
   const deleteAsset = async (asset: Asset) => {
-    setLoading(true, 'Eliminando modelo...');
+    setLoading(true, 'Eliminando modelo del servidor...');
     try {
-      // 1. Eliminar de IndexedDB local
-      await deleteAssetFromDb(asset.id);
+      // Eliminar del servidor
+      const success = await deleteAssetFromServer(asset.id);
       
-      // 2. Eliminar del servidor (en paralelo, no bloquea si falla)
-      setLoading(true, 'Sincronizando con servidor...');
-      await deleteAssetFromServer(asset.id).catch(() => {
-        logger.assetContext.debug("Eliminación en servidor falló, pero asset eliminado localmente");
-      });
+      if (!success) {
+        throw new Error('Error al eliminar el modelo del servidor');
+      }
+      
+      // Actualizar estado local
+      setAssets(prev => prev.filter(a => a.id !== asset.id));
       
       toast.success('Modelo eliminado correctamente');
     } catch (error) {
       logger.assetContext.error("Error eliminando asset:", error);
-      toast.error('Hubo un error eliminando el modelo de la base de datos');
+      toast.error('Hubo un error eliminando el modelo del servidor');
     } finally {
       setLoading(false);
     }
@@ -210,28 +148,29 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   const deleteAssets = async (assetsToDelete: Asset[]) => {
     if (assetsToDelete.length === 0) return;
     
-    setLoading(true, `Eliminando ${assetsToDelete.length} modelo(s)...`);
+    setLoading(true, `Eliminando ${assetsToDelete.length} modelo(s) del servidor...`);
     try {
       let successCount = 0;
       let failCount = 0;
       
-      // Eliminar de IndexedDB local y del servidor
+      // Eliminar del servidor
       for (const asset of assetsToDelete) {
         try {
-          // 1. Eliminar de IndexedDB local
-          await deleteAssetFromDb(asset.id);
-          
-          // 2. Eliminar del servidor (no bloquea si falla)
-          await deleteAssetFromServer(asset.id).catch(() => {
-            logger.assetContext.debug(`Eliminación en servidor falló para ${asset.id}, pero eliminado localmente`);
-          });
-          
-          successCount++;
+          const success = await deleteAssetFromServer(asset.id);
+          if (success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
         } catch (error) {
           logger.assetContext.error(`Error eliminando asset ${asset.id}:`, error);
           failCount++;
         }
       }
+      
+      // Actualizar estado local
+      const deletedIds = new Set(assetsToDelete.map(a => a.id));
+      setAssets(prev => prev.filter(a => !deletedIds.has(a.id)));
       
       if (successCount > 0) {
         toast.success(`${successCount} modelo(s) eliminado(s) correctamente${failCount > 0 ? ` (${failCount} fallaron)` : ''}`);
@@ -247,16 +186,19 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   };
 
   const renameAsset = async (asset: Asset, newName: string) => {
-    setLoading(true, 'Actualizando nombre...');
+    setLoading(true, 'Actualizando nombre en servidor...');
     try {
       const updatedAsset = { ...asset, name: newName };
-      // 1. Actualizar en IndexedDB local
-      await updateAssetInDb(updatedAsset);
       
-      // 2. Sincronizar metadata con servidor
-      await updateAssetMetadataOnServer(updatedAsset).catch(() => {
-        logger.assetContext.debug("Actualización de nombre en servidor falló, pero actualizado localmente");
-      });
+      // Actualizar en servidor
+      const success = await updateAssetMetadataOnServer(updatedAsset);
+      
+      if (!success) {
+        throw new Error('Error al actualizar el nombre en el servidor');
+      }
+      
+      // Actualizar estado local
+      setAssets(prev => prev.map(a => a.id === asset.id ? updatedAsset : a));
       
       toast.success('Nombre actualizado correctamente');
     } catch (error) {
@@ -268,30 +210,26 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   };
 
   const updateAssetFile = async (asset: Asset, type: 'unity' | 'zip', file: File) => {
-    setLoading(true, `Actualizando archivo ${type}...`);
+    setLoading(true, `Actualizando archivo ${type} en servidor...`);
     try {
-      let updatedAsset = { ...asset };
-      
-      // 1. Actualizar en IndexedDB local
-      if (type === 'unity') {
-          await updateAssetInDb(updatedAsset, undefined, file, undefined);
-      } else {
-          await updateAssetInDb(updatedAsset, undefined, undefined, file);
-      }
-      
-      // 2. Sincronizar archivo con servidor
-      setLoading(true, 'Sincronizando archivo con servidor...');
-      await updateAssetFilesOnServer(updatedAsset, {
+      // Actualizar archivo en servidor
+      const success = await updateAssetFilesOnServer(asset, {
         unity: type === 'unity' ? file : undefined,
         zip: type === 'zip' ? file : undefined
-      }).catch(() => {
-        logger.assetContext.debug("Actualización de archivo en servidor falló, pero actualizado localmente");
       });
+      
+      if (!success) {
+        throw new Error('Error al actualizar el archivo en el servidor');
+      }
+      
+      // Recargar assets desde el servidor para obtener las URLs actualizadas
+      const serverAssets = await syncFromServer();
+      setAssets(serverAssets);
       
       toast.success('Archivo actualizado correctamente');
     } catch (error) {
-      logger.assetContext.error("Error actualizando archivo en DB:", error);
-      toast.error('Hubo un error guardando el archivo en la base de datos');
+      logger.assetContext.error("Error actualizando archivo:", error);
+      toast.error('Hubo un error actualizando el archivo en el servidor');
     } finally {
       setLoading(false);
     }
@@ -301,34 +239,17 @@ export function AssetProvider({ children }: { children: ReactNode }) {
       const updatedAsset = { ...asset, doubleSide: checked };
       
       try {
-          // 1. Regenerar thumbnail si es necesario
-          const fullAsset = await getAssetFull(asset.id);
-          let newThumbnailBlob: Blob | null = null;
+          // Actualizar metadata en servidor
+          const success = await updateAssetMetadataOnServer(updatedAsset);
           
-          if (fullAsset && fullAsset.url) {
-             const fileRecord = await db.files.get(asset.id);
-             if (fileRecord && fileRecord.glb) {
-                 newThumbnailBlob = await thumbnailGenerator.generateFromBlob(fileRecord.glb, { doubleSide: checked });
-                 await updateAssetInDb(updatedAsset, newThumbnailBlob);
-             } else {
-                 // Fallback if no local blob (legacy asset?)
-                 await updateAssetInDb(updatedAsset);
-             }
+          if (!success) {
+            throw new Error('Error al actualizar la configuración en el servidor');
           }
           
-          // 2. Sincronizar con servidor
-          // Si hay thumbnail nuevo, actualizamos archivos; si no, solo metadata
-          if (newThumbnailBlob) {
-            updateAssetFilesOnServer(updatedAsset, {
-              thumbnail: newThumbnailBlob
-            }).catch(() => {
-              logger.assetContext.debug("Actualización de doubleSide en servidor falló, pero actualizado localmente");
-            });
-          } else {
-            updateAssetMetadataOnServer(updatedAsset).catch(() => {
-              logger.assetContext.debug("Actualización de doubleSide en servidor falló, pero actualizado localmente");
-            });
-          }
+          // Actualizar estado local
+          setAssets(prev => prev.map(a => a.id === asset.id ? updatedAsset : a));
+          
+          toast.success('Configuración actualizada correctamente');
       } catch (error) {
         logger.assetContext.error("Error updating double side:", error);
         toast.error('Error al actualizar la configuración de renderizado');
@@ -338,13 +259,16 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   const updateCategory = async (asset: Asset, newCategoryId: string) => {
     try {
       const updatedAsset = { ...asset, categoryId: newCategoryId };
-      // 1. Actualizar en IndexedDB local
-      await updateAssetInDb(updatedAsset);
       
-      // 2. Sincronizar con servidor
-      updateAssetMetadataOnServer(updatedAsset).catch(() => {
-        logger.assetContext.debug("Actualización de categoría en servidor falló, pero actualizada localmente");
-      });
+      // Actualizar en servidor
+      const success = await updateAssetMetadataOnServer(updatedAsset);
+      
+      if (!success) {
+        throw new Error('Error al actualizar la categoría en el servidor');
+      }
+      
+      // Actualizar estado local
+      setAssets(prev => prev.map(a => a.id === asset.id ? updatedAsset : a));
       
       toast.success('Categoría actualizada');
     } catch (error) {
@@ -356,13 +280,16 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   const updateTags = async (asset: Asset, newTags: string[]) => {
     try {
       const updatedAsset = { ...asset, tags: newTags };
-      // 1. Actualizar en IndexedDB local
-      await updateAssetInDb(updatedAsset);
       
-      // 2. Sincronizar con servidor
-      updateAssetMetadataOnServer(updatedAsset).catch(() => {
-        logger.assetContext.debug("Actualización de etiquetas en servidor falló, pero actualizadas localmente");
-      });
+      // Actualizar en servidor
+      const success = await updateAssetMetadataOnServer(updatedAsset);
+      
+      if (!success) {
+        throw new Error('Error al actualizar las etiquetas en el servidor');
+      }
+      
+      // Actualizar estado local
+      setAssets(prev => prev.map(a => a.id === asset.id ? updatedAsset : a));
       
       toast.success('Etiquetas actualizadas');
     } catch (error) {
@@ -372,7 +299,7 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   };
 
   const updateAssetInfo = async (asset: Asset, updates: { name?: string; description?: string; categoryId?: string; tags?: string[] }) => {
-    setLoading(true, 'Actualizando información...');
+    setLoading(true, 'Actualizando información en servidor...');
     try {
       const updatedAsset = { 
         ...asset, 
@@ -382,13 +309,15 @@ export function AssetProvider({ children }: { children: ReactNode }) {
         ...(updates.tags && { tags: updates.tags })
       };
       
-      // 1. Actualizar en IndexedDB local
-      await updateAssetInDb(updatedAsset);
+      // Actualizar en servidor
+      const success = await updateAssetMetadataOnServer(updatedAsset);
       
-      // 2. Sincronizar con servidor
-      await updateAssetMetadataOnServer(updatedAsset).catch(() => {
-        logger.assetContext.debug("Actualización de información en servidor falló, pero actualizada localmente");
-      });
+      if (!success) {
+        throw new Error('Error al actualizar la información en el servidor');
+      }
+      
+      // Actualizar estado local
+      setAssets(prev => prev.map(a => a.id === asset.id ? updatedAsset : a));
       
       toast.success('Información actualizada correctamente');
     } catch (error) {
