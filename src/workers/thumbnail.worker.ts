@@ -13,6 +13,7 @@ class ThumbnailGeneratorWorker {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private loader: GLTFLoader;
+  private baseUrl: string = '';
 
   constructor() {
     this.scene = new THREE.Scene();

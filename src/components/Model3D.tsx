@@ -301,7 +301,7 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
         // Wireframe desactivado - asegurar que se removieron y materiales restaurados
         logger.uploadedModel.debug("Wireframes removidos y materiales restaurados");
       }
-    }, 0);
+    }, 200);
 
     return () => {
       clearTimeout(timeoutId);
@@ -316,9 +316,7 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
         removeWireframeFromModel(ref.current, false); // No restaurar dos veces
         wireframeGroupRef.current = null;
       }
-    }, 200);
-
-    return () => clearTimeout(timeoutId);
+    };
   }, [urlValidated, viewerWireframe]);
 
 
