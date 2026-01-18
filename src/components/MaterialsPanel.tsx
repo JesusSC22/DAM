@@ -206,7 +206,10 @@ export const MaterialsPanel: React.FC<MaterialsPanelProps> = ({ modelUrl, assetI
       try {
         const loader = new GLTFLoader();
         const dracoLoader = new DRACOLoader();
-        dracoLoader.setDecoderPath('/draco/gltf/');
+        // Usar BASE_URL de Vite para soportar GitHub Pages (base: '/DAM/')
+        const baseUrl = import.meta.env.BASE_URL || '/';
+        const dracoPath = `${baseUrl}draco/gltf/`;
+        dracoLoader.setDecoderPath(dracoPath);
         loader.setDRACOLoader(dracoLoader);
 
         // Intentar cargar el modelo directamente
@@ -230,7 +233,10 @@ export const MaterialsPanel: React.FC<MaterialsPanelProps> = ({ modelUrl, assetI
               // Si se regeneró la URL, intentar cargar con la nueva URL
               const loader = new GLTFLoader();
               const dracoLoader = new DRACOLoader();
-              dracoLoader.setDecoderPath('/draco/gltf/');
+              // Usar BASE_URL de Vite para soportar GitHub Pages (base: '/DAM/')
+              const baseUrl = import.meta.env.BASE_URL || '/';
+              const dracoPath = `${baseUrl}draco/gltf/`;
+              dracoLoader.setDecoderPath(dracoPath);
               loader.setDRACOLoader(dracoLoader);
               
               try {

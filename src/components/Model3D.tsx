@@ -54,11 +54,15 @@ class GLTFLoaderWithDraco extends GLTFLoader {
     super();
     try {
       const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath('/draco/gltf/');
+      // Usar BASE_URL de Vite para soportar GitHub Pages (base: '/DAM/')
+      // BASE_URL siempre termina con '/', así que no necesitamos añadir otra '/'
+      const baseUrl = import.meta.env.BASE_URL || '/';
+      const dracoPath = `${baseUrl}draco/gltf/`;
+      dracoLoader.setDecoderPath(dracoPath);
       // No preload para evitar errores 404 que bloqueen la carga
       // dracoLoader.preload();
       this.setDRACOLoader(dracoLoader);
-      logger.model3d.debug("GLTFLoaderWithDraco creado con path local:", '/draco/gltf/');
+      logger.model3d.debug("GLTFLoaderWithDraco creado con path:", dracoPath);
     } catch (error) {
       // Si Draco falla, continuar sin él - los modelos sin Draco seguirán funcionando
       logger.model3d.warn("No se pudo configurar DRACOLoader, continuando sin compresión Draco:", error);

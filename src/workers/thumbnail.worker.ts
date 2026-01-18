@@ -33,26 +33,11 @@ class ThumbnailGeneratorWorker {
     // Intentar configurar Draco - si falla, continuar sin él
     try {
       const dracoLoader = new DRACOLoader();
-      // Usar baseUrl si está disponible, sino intentar detectar el origen
-      let dracoPath = '/draco/gltf/';
-      if (this.baseUrl) {
-        dracoPath = `${this.baseUrl}/draco/gltf/`;
-      } else {
-        try {
-          // Intentar obtener el origen desde self.location si está disponible
-          if (typeof self !== 'undefined' && (self as any).location) {
-            const origin = (self as any).location.origin;
-            dracoPath = `${origin}/draco/gltf/`;
-          } else {
-            // Si no hay location, intentar obtener el origen de la URL del worker
-            const workerUrl = new URL(import.meta.url);
-            dracoPath = `${workerUrl.origin}/draco/gltf/`;
-          }
-        } catch (e) {
-          // Si falla, usar ruta relativa
-          dracoPath = '/draco/gltf/';
-        }
-      }
+      // baseUrl aquí es el BASE_PATH (ej: '/DAM/' o '/'), no el origin completo
+      // Si está disponible, usarlo directamente; sino, usar '/' por defecto
+      const basePath = this.baseUrl || '/';
+      // BASE_PATH siempre termina con '/', así que no necesitamos añadir otra '/'
+      const dracoPath = `${basePath}draco/gltf/`;
       
       dracoLoader.setDecoderPath(dracoPath);
       // No preload para evitar errores si los archivos no están disponibles
