@@ -8,9 +8,31 @@ import { LoadingSpinner } from './components/LoadingSpinner';
 import { useAppStore } from './store/useAppStore';
 
 // Lazy loading de páginas para mejorar el rendimiento inicial
-const Home = lazy(() => import('./pages/Home').then(module => ({ default: module.Home })));
-const AssetDetail = lazy(() => import('./pages/AssetDetail').then(module => ({ default: module.AssetDetail })));
-const DatabaseManagement = lazy(() => import('./pages/DatabaseManagement').then(module => ({ default: module.DatabaseManagement })));
+// Manejar errores de carga de módulos dinámicos (cache, base path, etc.)
+const lazyLoadWithRetry = (importFn: () => Promise<any>, retries = 2) => {
+  return lazy(async () => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await importFn();
+      } catch (error: any) {
+        // Si falla y hay reintentos disponibles, intentar recargar la página
+        if (i < retries - 1 && error?.message?.includes('Failed to fetch dynamically imported module')) {
+          console.warn(`Error cargando módulo dinámico, intento ${i + 1}/${retries}. Recargando página...`);
+          // Esperar un poco antes de recargar
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          window.location.reload();
+          throw error; // Reload ya inició, esto no debería ejecutarse
+        }
+        throw error;
+      }
+    }
+    throw new Error('No se pudo cargar el módulo después de varios intentos');
+  });
+};
+
+const Home = lazyLoadWithRetry(() => import('./pages/Home').then(module => ({ default: module.Home })));
+const AssetDetail = lazyLoadWithRetry(() => import('./pages/AssetDetail').then(module => ({ default: module.AssetDetail })));
+const DatabaseManagement = lazyLoadWithRetry(() => import('./pages/DatabaseManagement').then(module => ({ default: module.DatabaseManagement })));
 
 function App() {
   const { darkMode, isLoading, loadingMessage, isSyncing } = useAppStore();
