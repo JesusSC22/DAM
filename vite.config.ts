@@ -31,6 +31,9 @@ const getDevelopmentCSP = (): string => {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Base path para GitHub Pages (usar el nombre del repositorio)
+  // En desarrollo será '/' y en producción '/DAM/'
+  base: process.env.NODE_ENV === 'production' ? '/DAM/' : '/',
   plugins: [
     react(),
     // Plugin para configurar CSP headers (diferente para dev/prod)

@@ -71,8 +71,40 @@ Sistema de gestión de activos digitales (DAM) especializado en modelos 3D, con 
    ```
 
 5. **Abrir en el navegador**
-   
+
    Abre [http://localhost:5173](http://localhost:5173) (o el puerto que Vite asigne)
+
+## 🌐 GitHub Pages (Demo Online)
+
+El proyecto está configurado para desplegarse automáticamente en GitHub Pages.
+
+### Ver el Demo
+
+Una vez configurado GitHub Pages, puedes ver la aplicación en:
+**https://jesussc22.github.io/DAM/**
+
+### Configuración Automática
+
+El proyecto incluye un workflow de GitHub Actions que:
+- ✅ Construye automáticamente el proyecto cuando haces push a `main`
+- ✅ Despliega el frontend en GitHub Pages
+- ✅ Se ejecuta en cada commit a la rama principal
+
+### Habilitar GitHub Pages
+
+1. Ve a **Settings** → **Pages** en tu repositorio de GitHub
+2. En **Source**, selecciona **GitHub Actions**
+3. El workflow se ejecutará automáticamente en cada push a `main`
+
+### Nota Importante
+
+⚠️ **El backend (servidor Express) no está incluido en GitHub Pages**. GitHub Pages solo puede servir archivos estáticos. Para una demo completa con funcionalidad de subida de archivos, necesitarías desplegar el servidor en otro servicio como:
+- [Vercel](https://vercel.com)
+- [Railway](https://railway.app)
+- [Render](https://render.com)
+- [Heroku](https://www.heroku.com)
+
+El frontend en GitHub Pages funcionará en modo visualización (puedes ver modelos si están precargados en IndexedDB).
 
 ## 📁 Estructura del Proyecto
 
