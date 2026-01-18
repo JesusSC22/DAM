@@ -34,7 +34,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
             style={{ height: '100%', width: '100%' }}
             totalCount={assets.length}
             components={{
-              List: React.forwardRef(({ style, children, ...props }, ref) => (
+              List: React.forwardRef<HTMLDivElement, { style?: React.CSSProperties; children?: React.ReactNode }>(({ style, children, ...props }, ref) => (
                 <div
                   ref={ref}
                   {...props}

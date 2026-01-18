@@ -345,7 +345,7 @@ export function removeWireframeFromModel(
  */
 export async function loadGLTFAndApplyWireframe(
   url: string,
-  loader: THREE.Loader<THREE.GLTF>,
+  loader: THREE.Loader,
   config?: {
     color?: number;
     opacity?: number;
@@ -354,14 +354,14 @@ export async function loadGLTFAndApplyWireframe(
     applySolidWhite?: boolean;
   }
 ): Promise<{
-  gltf: THREE.GLTF;
+  gltf: any; // GLTF result from loader
   wireframeGroup: THREE.Group;
   materialsMap?: Map<THREE.Mesh, THREE.Material | THREE.Material[]>;
 }> {
   return new Promise((resolve, reject) => {
     loader.load(
       url,
-      (gltf) => {
+      (gltf: any) => {
         const { wireframeGroup, materialsMap } = applyWireframeToModel(gltf.scene, config);
         resolve({ gltf, wireframeGroup, materialsMap });
       },
