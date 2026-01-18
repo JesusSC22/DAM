@@ -14,6 +14,12 @@ export class ThumbnailGenerator {
     this.worker = new Worker(new URL('../workers/thumbnail.worker.ts', import.meta.url), { type: 'module' });
     this.pendingRequests = new Map();
 
+    // Enviar la URL base al worker para que pueda construir rutas correctas
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    if (baseUrl) {
+      this.worker.postMessage({ type: 'init', baseUrl });
+    }
+
     this.worker.onmessage = (e) => {
       const { id, result, error } = e.data;
       const request = this.pendingRequests.get(id);

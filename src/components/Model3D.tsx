@@ -52,11 +52,17 @@ class ModelErrorBoundary extends Component<{ fallback: ReactNode; children: Reac
 class GLTFLoaderWithDraco extends GLTFLoader {
   constructor() {
     super();
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('/draco/gltf/');
-    dracoLoader.preload();
-    this.setDRACOLoader(dracoLoader);
-    logger.model3d.debug("GLTFLoaderWithDraco creado con path local:", '/draco/gltf/');
+    try {
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath('/draco/gltf/');
+      // No preload para evitar errores 404 que bloqueen la carga
+      // dracoLoader.preload();
+      this.setDRACOLoader(dracoLoader);
+      logger.model3d.debug("GLTFLoaderWithDraco creado con path local:", '/draco/gltf/');
+    } catch (error) {
+      // Si Draco falla, continuar sin él - los modelos sin Draco seguirán funcionando
+      logger.model3d.warn("No se pudo configurar DRACOLoader, continuando sin compresión Draco:", error);
+    }
   }
 }
 

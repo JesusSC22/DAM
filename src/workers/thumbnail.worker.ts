@@ -23,19 +23,53 @@ class ThumbnailGeneratorWorker {
     
     // Configurar GLTFLoader con DRACOLoader local (CSP compatible)
     this.loader = new GLTFLoader();
-    const dracoLoader = new DRACOLoader();
-    // Usar ruta relativa - Vite debería resolverla correctamente
-    // La ruta /draco/gltf/ se resolverá contra el origen de la página principal
-    dracoLoader.setDecoderPath('/draco/gltf/');
-    dracoLoader.preload();
-    this.loader.setDRACOLoader(dracoLoader);
     
-    // Logger simple para workers (no puede importar el logger común)
-    if (import.meta.env.DEV) {
-      console.debug('[ThumbnailWorker] DRACOLoader configurado con path: /draco/gltf/');
-    }
+    // Draco se configurará cuando se reciba el mensaje 'init' con baseUrl
 
     this.setupLighting();
+  }
+
+  private setupDraco() {
+    // Intentar configurar Draco - si falla, continuar sin él
+    try {
+      const dracoLoader = new DRACOLoader();
+      // Usar baseUrl si está disponible, sino intentar detectar el origen
+      let dracoPath = '/draco/gltf/';
+      if (this.baseUrl) {
+        dracoPath = `${this.baseUrl}/draco/gltf/`;
+      } else {
+        try {
+          // Intentar obtener el origen desde self.location si está disponible
+          if (typeof self !== 'undefined' && (self as any).location) {
+            const origin = (self as any).location.origin;
+            dracoPath = `${origin}/draco/gltf/`;
+          } else {
+            // Si no hay location, intentar obtener el origen de la URL del worker
+            const workerUrl = new URL(import.meta.url);
+            dracoPath = `${workerUrl.origin}/draco/gltf/`;
+          }
+        } catch (e) {
+          // Si falla, usar ruta relativa
+          dracoPath = '/draco/gltf/';
+        }
+      }
+      
+      dracoLoader.setDecoderPath(dracoPath);
+      // No preload para evitar errores si los archivos no están disponibles
+      this.loader.setDRACOLoader(dracoLoader);
+      
+      if (import.meta.env.DEV) {
+        console.debug('[ThumbnailWorker] DRACOLoader configurado con path:', dracoPath);
+      }
+    } catch (error) {
+      // Si Draco falla, continuar sin él - los modelos sin Draco seguirán funcionando
+      console.warn('[ThumbnailWorker] No se pudo configurar DRACOLoader, continuando sin compresión Draco:', error);
+    }
+  }
+
+  setBaseUrl(baseUrl: string) {
+    this.baseUrl = baseUrl;
+    this.setupDraco();
   }
 
   private initRenderer(width: number, height: number) {
@@ -180,10 +214,13 @@ class ThumbnailGeneratorWorker {
 const generator = new ThumbnailGeneratorWorker();
 
 self.onmessage = async (e: MessageEvent) => {
-  const { type, id, blob, width, height, options } = e.data;
+  const { type, id, blob, width, height, options, baseUrl } = e.data;
 
   try {
-    if (type === 'generate') {
+    if (type === 'init' && baseUrl) {
+      // Configurar baseUrl y Draco cuando se recibe mensaje de inicialización
+      generator.setBaseUrl(baseUrl);
+    } else if (type === 'generate') {
       const result = await generator.generateFromBlob(blob, width || 256, height || 256, options);
       self.postMessage({ type: 'generate', id, result });
     } else if (type === 'analyze') {
