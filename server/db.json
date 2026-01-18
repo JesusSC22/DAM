@@ -1,0 +1,23 @@
+{
+  "assets": [
+    {
+      "id": "pfyf7c5x9",
+      "name": "Planta",
+      "description": "",
+      "categoryId": "prop",
+      "type": "model",
+      "tags": [],
+      "fileSize": "1.70 MB",
+      "metadata": {
+        "vertices": 4796,
+        "polygons": 6355,
+        "materialCount": 4,
+        "createdDate": "2026-01-18"
+      },
+      "url": "/uploads/glb-1768736517089-968380659.glb",
+      "thumbnail": "/uploads/thumbnail-1768742948422-698630581",
+      "thumbnailBlob": {},
+      "doubleSide": true
+    }
+  ]
+}

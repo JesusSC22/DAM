@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  background-color: #f3f4f6; /* gray-100 */
+  color: #111827; /* gray-900 */
+  transition: background-color 0.2s, color 0.2s;
+}
+
+html.dark body, html.dark #root {
+  background-color: #111827; /* gray-900 */
+  color: #f3f4f6; /* gray-100 */
+}
+
+/* Personalización del scrollbar para que sea sutil */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Estilos para accesibilidad */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Mejorar el foco visible para accesibilidad */
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Asegurar que los botones tengan un tamaño mínimo táctil (44x44px) */
+button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Mejorar el contraste en modo oscuro */
+@media (prefers-contrast: high) {
+  .dark {
+    --tw-text-opacity: 1;
+  }
+}

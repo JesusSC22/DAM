@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP base (funciona en dev y prod) -->
+    <!-- En desarrollo, vite.config.ts sobrescribe esta CSP con headers HTTP más permisivos para HMR -->
+    <!-- Nota: 'unsafe-inline' para styles es necesario por Tailwind CSS dinámico -->
+    <!-- Nota: 'frame-ancestors' y 'upgrade-insecure-requests' no funcionan en meta tags, solo en headers HTTP -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; connect-src 'self' blob: http://localhost:* https:; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
+    <title>DAM 3D Explorer</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+
+
+
+
