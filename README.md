@@ -282,7 +282,7 @@ El sistema usa una arquitectura de sincronización donde:
 
 ## 📄 Licencia
 
-Este proyecto es privado. Todos los derechos reservados.
+Este proyecto está bajo la Licencia MIT. Ver el archivo [LICENSE](LICENSE) para más detalles.
 
 ## 🙏 Agradecimientos
 
