@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const { validateFileType } = require('./fileValidation');
+const { validateAsset, validateAssetUpdate, validateAssetId } = require('./validation');
 
 const app = express();
 // Puerto del servidor (puede configurarse mediante variable de entorno)
@@ -178,6 +179,13 @@ app.get('/api/assets', uploadLimiter, (req, res) => {
 
 // GET /api/assets/:id
 app.get('/api/assets/:id', uploadLimiter, (req, res) => {
+  try {
+    // Validar ID
+    validateAssetId(req.params.id);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  
   const db = readDB();
   const asset = db.assets.find(a => a.id === req.params.id);
   if (asset) {
@@ -219,7 +227,18 @@ app.post('/api/assets', strictUploadLimiter, (req, res, next) => {
 }, (req, res) => {
   try {
     const db = readDB();
-    const assetData = JSON.parse(req.body.data);
+    
+    // Parsear y validar datos del asset con Zod
+    let assetData;
+    try {
+      assetData = JSON.parse(req.body.data);
+      assetData = validateAsset(assetData);
+    } catch (error) {
+      return res.status(400).json({ 
+        error: 'Datos de asset inválidos',
+        details: error.message 
+      });
+    }
     
     // Validar archivos usando magic numbers
     if (req.files['glb']) {
@@ -292,11 +311,24 @@ app.post('/api/assets', strictUploadLimiter, (req, res, next) => {
 
 // PUT /api/assets/:id (Update metadata only)
 app.put('/api/assets/:id', uploadLimiter, (req, res) => {
+  try {
+    // Validar ID
+    validateAssetId(req.params.id);
+    
+    // Validar datos de actualización
+    const updates = validateAssetUpdate({ ...req.body, id: req.params.id });
+  } catch (error) {
+    return res.status(400).json({ 
+      error: 'Datos de actualización inválidos',
+      details: error.message 
+    });
+  }
+  
   const db = readDB();
   const index = db.assets.findIndex(a => a.id === req.params.id);
   
   if (index !== -1) {
-    // Merge existing with updates
+    // Merge existing with validated updates
     db.assets[index] = { ...db.assets[index], ...req.body };
     writeDB(db);
     res.json(db.assets[index]);
@@ -328,6 +360,9 @@ app.put('/api/assets/:id/files', strictUploadLimiter, (req, res, next) => {
   });
 }, (req, res) => {
   try {
+    // Validar ID
+    validateAssetId(req.params.id);
+    
     const db = readDB();
     const index = db.assets.findIndex(a => a.id === req.params.id);
     
@@ -338,7 +373,16 @@ app.put('/api/assets/:id/files', strictUploadLimiter, (req, res, next) => {
     const currentAsset = db.assets[index];
     let updates = {};
     if (req.body.data) {
-      updates = JSON.parse(req.body.data);
+      try {
+        updates = JSON.parse(req.body.data);
+        // Validar actualización con Zod
+        updates = validateAssetUpdate({ ...updates, id: req.params.id });
+      } catch (error) {
+        return res.status(400).json({ 
+          error: 'Datos de actualización inválidos',
+          details: error.message 
+        });
+      }
     }
 
     // Validar archivos nuevos usando magic numbers
@@ -430,6 +474,13 @@ app.put('/api/assets/:id/files', strictUploadLimiter, (req, res, next) => {
 
 // DELETE /api/assets/:id
 app.delete('/api/assets/:id', uploadLimiter, (req, res) => {
+  try {
+    // Validar ID
+    validateAssetId(req.params.id);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  
   const db = readDB();
   const initialLength = db.assets.length;
   const assetToDelete = db.assets.find(a => a.id === req.params.id);
