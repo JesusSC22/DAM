@@ -22,6 +22,12 @@ import { SERVER_URL } from '../config/constants';
  * Esta es la función principal para mantener sincronización
  */
 export const syncFromServer = async (): Promise<boolean> => {
+  // Si no hay servidor configurado (modo demo), no intentar sincronizar
+  if (!SERVER_URL || SERVER_URL.trim() === '') {
+    logger.default.debug("Modo demo: No hay servidor configurado, omitiendo sincronización");
+    return false;
+  }
+  
   try {
     const response = await fetch(`${SERVER_URL}/api/assets`);
     if (!response.ok) {
@@ -113,6 +119,11 @@ export const syncFromServer = async (): Promise<boolean> => {
  * Verifica si el servidor está disponible
  */
 export const isServerAvailable = async (): Promise<boolean> => {
+  // Si no hay servidor configurado, no está disponible
+  if (!SERVER_URL || SERVER_URL.trim() === '') {
+    return false;
+  }
+  
   try {
     const response = await fetch(`${SERVER_URL}/api/assets`, {
       method: 'HEAD',
@@ -136,6 +147,12 @@ export const syncAssetToServer = async (
     zip?: File | Blob | null;
   }
 ): Promise<boolean> => {
+  // Si no hay servidor configurado (modo demo), no intentar sincronizar
+  if (!SERVER_URL || SERVER_URL.trim() === '') {
+    logger.default.debug("Modo demo: No hay servidor configurado, omitiendo sincronización");
+    return false;
+  }
+  
   try {
     // Preparar FormData para multipart/form-data
     const formData = new FormData();
@@ -173,6 +190,12 @@ export const syncAssetToServer = async (
  * Actualiza solo la metadata de un asset en el servidor
  */
 export const updateAssetMetadataOnServer = async (asset: Asset): Promise<boolean> => {
+  // Si no hay servidor configurado (modo demo), no intentar actualizar
+  if (!SERVER_URL || SERVER_URL.trim() === '') {
+    logger.default.debug("Modo demo: No hay servidor configurado, omitiendo actualización");
+    return false;
+  }
+  
   try {
     // Metadata sin URLs y sin blobs
     const { url, thumbnail, unityPackageUrl, fbxZipUrl, thumbnailBlob, ...assetMetadata } = asset;
@@ -210,6 +233,12 @@ export const updateAssetFilesOnServer = async (
     zip?: File | Blob | null;
   }
 ): Promise<boolean> => {
+  // Si no hay servidor configurado (modo demo), no intentar actualizar
+  if (!SERVER_URL || SERVER_URL.trim() === '') {
+    logger.default.debug("Modo demo: No hay servidor configurado, omitiendo actualización de archivos");
+    return false;
+  }
+  
   try {
     const formData = new FormData();
     
@@ -245,6 +274,12 @@ export const updateAssetFilesOnServer = async (
  * Elimina un asset del servidor
  */
 export const deleteAssetFromServer = async (assetId: string): Promise<boolean> => {
+  // Si no hay servidor configurado (modo demo), no intentar eliminar
+  if (!SERVER_URL || SERVER_URL.trim() === '') {
+    logger.default.debug("Modo demo: No hay servidor configurado, omitiendo eliminación");
+    return false;
+  }
+  
   try {
     const response = await fetch(`${SERVER_URL}/api/assets/${assetId}`, {
       method: 'DELETE',

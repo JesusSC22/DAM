@@ -11,8 +11,29 @@
  * En producción: Debe establecerse mediante VITE_SERVER_URL
  * 
  * Vite expone variables de entorno con el prefijo VITE_ al código del cliente
+ * 
+ * IMPORTANTE: En producción (GitHub Pages), si VITE_SERVER_URL no está configurado,
+ * SERVER_URL será una cadena vacía para evitar intentos de conexión a localhost
  */
-export const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+const getServerUrl = (): string => {
+  const envUrl = import.meta.env.VITE_SERVER_URL;
+  
+  // Si hay una URL configurada, usarla
+  if (envUrl && envUrl.trim() !== '') {
+    return envUrl.trim();
+  }
+  
+  // En desarrollo (localhost), usar localhost:3001
+  if (typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return 'http://localhost:3001';
+  }
+  
+  // En producción sin URL configurada, retornar vacío (modo demo)
+  return '';
+};
+
+export const SERVER_URL = getServerUrl();
 
 /**
  * Timeout para peticiones al servidor (en milisegundos)
