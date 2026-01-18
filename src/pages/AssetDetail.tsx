@@ -27,10 +27,8 @@ export const AssetDetail: React.FC = () => {
             setIsLoading(true);
             setIsInitialLoad(true); // Resetear la bandera de carga inicial
             try {
-                // Siempre forzar regeneración de blob URLs para asegurar que sean válidas
-                // Esto es necesario porque las blob URLs pueden invalidarse cuando se navega fuera y se vuelve
-                const { getAssetWithBlobs } = await import('../services/db');
-                const loadedAsset = await getAssetWithBlobs(id, true);
+                // Obtener asset desde el contexto (que viene del servidor)
+                const loadedAsset = await getAssetFull(id);
                 
                 // Validar que el asset tiene una URL válida antes de renderizar
                 if (loadedAsset && loadedAsset.url) {
@@ -56,7 +54,7 @@ export const AssetDetail: React.FC = () => {
     };
     loadAsset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]); // Solo re-cargar cuando cambia el ID, no cuando cambian las funciones del contexto
+  }, [id, getAssetFull]); // Re-cargar cuando cambia el ID o la función getAssetFull
 
   // Sincronizar cambios de doubleSide del store con la base de datos
   // Solo actualizar si no es la carga inicial
