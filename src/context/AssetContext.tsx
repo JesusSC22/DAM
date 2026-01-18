@@ -9,7 +9,7 @@ import {
   updateAssetFilesOnServer,
   deleteAssetFromServer
 } from '../services/serverSync';
-import { useAppStore } from './store/useAppStore';
+import { useAppStore } from '../store/useAppStore';
 import { SYNC_INTERVAL } from '../config/constants';
 
 interface AssetContextType {
