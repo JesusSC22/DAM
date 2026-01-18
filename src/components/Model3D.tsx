@@ -66,11 +66,19 @@ class GLTFLoaderWithDraco extends GLTFLoader {
   }
 }
 
+// Componente interno que usa useLoader - solo se renderiza si la URL está validada
+const ModelLoader = ({ url }: { url: string }) => {
+  const gltf = useLoader(GLTFLoaderWithDraco, url);
+  if (!gltf?.scene) return null;
+  return <Clone object={gltf.scene} />;
+};
+
 const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotate: boolean; doubleSide?: boolean }) => {
   const ref = useRef<THREE.Group>(null);
   const wireframeGroupRef = useRef<THREE.Group | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [urlValidated, setUrlValidated] = useState(false);
   const viewerWireframe = useAppStore((state) => state.viewerWireframe);
   
   // Validar URL antes de cargar (sin revocar - el cache en db.ts gestiona las blob URLs)
@@ -79,79 +87,127 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
       logger.uploadedModel.error("URL vacía o no definida");
       setIsLoading(false);
       setLoadError("URL vacía o no definida");
+      setUrlValidated(false);
       return;
     }
     
-    logger.uploadedModel.debug("Cargando modelo desde URL:", url);
+    logger.uploadedModel.debug("Validando URL antes de cargar:", url);
     setIsLoading(true);
     setLoadError(null);
+    setUrlValidated(false);
 
-    // Verificar que la blob URL sea válida (solo validación, no revocación)
-    if (url.startsWith('blob:')) {
-      fetch(url)
-        .then(response => {
-          if (!response.ok) {
-            const errorMsg = `Error al acceder al blob: ${response.status}`;
+    // Validar tanto blob URLs como URLs HTTP del servidor
+    const validateUrl = async () => {
+      try {
+        // Para blob URLs, validar directamente
+        if (url.startsWith('blob:')) {
+          const blobResponse = await fetch(url);
+          if (!blobResponse.ok) {
+            const errorMsg = `Error al acceder al blob: ${blobResponse.status}`;
             logger.uploadedModel.error(errorMsg);
             setLoadError(errorMsg);
             setIsLoading(false);
+            setUrlValidated(false);
             return;
           }
-          return response.blob();
-        })
-        .then(blob => {
-          if (blob) {
-            if (blob.size === 0) {
-              const errorMsg = "El archivo blob está vacío";
-              logger.uploadedModel.error(errorMsg);
-              setLoadError(errorMsg);
-              setIsLoading(false);
-            } else {
-              logger.uploadedModel.debug("Blob válido, tamaño:", blob.size, "bytes");
-            }
+          const blob = await blobResponse.blob();
+          if (blob.size === 0) {
+            const errorMsg = "El archivo blob está vacío";
+            logger.uploadedModel.error(errorMsg);
+            setLoadError(errorMsg);
+            setIsLoading(false);
+            setUrlValidated(false);
+            return;
           }
-        })
-        .catch(err => {
-          const errorMsg = `Error validando blob URL: ${err.message}`;
-          logger.uploadedModel.error(errorMsg, err);
+          logger.uploadedModel.debug("Blob válido, tamaño:", blob.size, "bytes");
+          setUrlValidated(true);
+          return;
+        }
+        
+        // Para URLs HTTP, intentar HEAD primero, luego GET si falla
+        // Algunos servidores no soportan HEAD, así que usamos GET con range para solo leer los primeros bytes
+        let response: Response;
+        try {
+          // Intentar HEAD primero (más eficiente)
+          response = await fetch(url, { 
+            method: 'HEAD',
+            signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
+          });
+        } catch (headError: any) {
+          // Si HEAD falla (algunos servidores no lo soportan), intentar GET con Range
+          logger.uploadedModel.debug("HEAD no disponible, usando GET con Range para validar");
+          response = await fetch(url, { 
+            method: 'GET',
+            headers: { 'Range': 'bytes=0-0' }, // Solo leer el primer byte
+            signal: AbortSignal.timeout(5000)
+          });
+        }
+        
+        if (!response.ok && response.status !== 206) { // 206 es Partial Content (normal para Range requests)
+          const errorMsg = `Error al acceder a la URL: ${response.status} ${response.statusText}`;
+          logger.uploadedModel.error(errorMsg);
           setLoadError(errorMsg);
           setIsLoading(false);
-        });
-    }
+          setUrlValidated(false);
+          return;
+        }
+        
+        // Verificar content-type si está disponible
+        const contentType = response.headers.get('content-type');
+        if (contentType && !contentType.includes('model/gltf') && !contentType.includes('model/gltf-binary') && !contentType.includes('application/octet-stream')) {
+          logger.uploadedModel.warn("Content-Type inesperado:", contentType, "- continuando de todas formas");
+        }
+        
+        logger.uploadedModel.debug("URL validada correctamente");
+        setUrlValidated(true);
+      } catch (err: any) {
+        // Si el error es de CORS o red, dar más tiempo - puede que solo sea lento
+        if (err.name === 'TypeError' && err.message.includes('fetch')) {
+          logger.uploadedModel.warn("Posible problema de CORS o red, intentando cargar de todas formas:", err.message);
+          // Permitir continuar si es un problema de CORS (algunos servidores lo permiten solo en carga real)
+          setUrlValidated(true);
+          return;
+        }
+        
+        const errorMsg = err.name === 'AbortError' 
+          ? `Timeout al validar la URL (el servidor no respondió a tiempo)`
+          : `Error validando URL: ${err.message}`;
+        logger.uploadedModel.error(errorMsg, err);
+        setLoadError(errorMsg);
+        setIsLoading(false);
+        setUrlValidated(false);
+      }
+    };
+    
+    validateUrl();
     // NOTA: NO revocamos blob URLs aquí porque están gestionadas por el cache en db.ts
     // El cache se encarga de revocarlas cuando sea necesario (LRU, eliminación de assets, etc.)
   }, [url]);
 
-  // Usar useLoader con nuestro loader personalizado que tiene Draco preconfigurado
-  // useLoader puede lanzar excepciones si la URL es inválida - el ErrorBoundary lo capturará
-  // NOTA: No podemos usar try-catch aquí porque useLoader es un hook y debe ejecutarse siempre
-  // Si la URL es inválida, useLoader lanzará una excepción que será capturada por el ErrorBoundary
-  const gltf = useLoader(GLTFLoaderWithDraco, url);
-  const scene = gltf?.scene || null;
+  // No usar useLoader aquí - en su lugar, renderizar ModelLoader condicionalmente cuando la URL esté validada
+  // Esto evita que useLoader se ejecute antes de que la URL sea accesible
   
-  // Marcar como cargado cuando el modelo está listo
+  // Marcar como validada cuando la URL está lista para cargar
   useEffect(() => {
-    if (scene) {
-      setIsLoading(false);
-      setLoadError(null);
-      logger.uploadedModel.debug("Modelo cargado correctamente");
+    if (urlValidated && !loadError) {
+      // La URL está validada, el ModelLoader se encargará de cargar el modelo
+      logger.uploadedModel.debug("URL validada, listo para cargar modelo");
     }
-  }, [scene]);
-
-  // Si hay un error, marcar como no cargando para que el ErrorBoundary pueda manejarlo
-  useEffect(() => {
-    if (loadError) {
-      setIsLoading(false);
-    }
-  }, [loadError]);
+  }, [urlValidated, loadError]);
   
   React.useEffect(() => {
-    if (scene) {
+    // Configurar materiales cuando el modelo esté cargado
+    // Esperamos un frame para que el modelo se haya cargado desde ModelLoader
+    if (!ref.current) return;
+    
+    const timeoutId = setTimeout(() => {
+      if (!ref.current) return;
+      
       // Asegurar que doubleSide tenga un valor por defecto
       const effectiveDoubleSide = doubleSide ?? false;
       const side = effectiveDoubleSide ? THREE.DoubleSide : THREE.FrontSide;
       
-      scene.traverse((child) => {
+      ref.current.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
           
@@ -181,14 +237,17 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
       });
       
       logger.uploadedModel.debug("Materiales configurados con doubleSide:", effectiveDoubleSide);
-    }
-  }, [scene, doubleSide, viewerWireframe]);
+      setIsLoading(false);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [urlValidated, doubleSide, viewerWireframe]);
 
   // Aplicar o remover wireframe según el estado
   React.useEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current || !urlValidated) return;
 
-    // Esperar un frame para asegurar que Clone haya terminado de renderizar
+    // Esperar un frame para asegurar que el modelo esté cargado
     const timeoutId = setTimeout(() => {
       if (!ref.current) return;
 
@@ -253,8 +312,10 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
         removeWireframeFromModel(ref.current, false); // No restaurar dos veces
         wireframeGroupRef.current = null;
       }
-    };
-  }, [scene, viewerWireframe]);
+    }, 200);
+
+    return () => clearTimeout(timeoutId);
+  }, [urlValidated, viewerWireframe]);
 
 
   // AutoRotate (los wireframes se sincronizan automáticamente al ser hijos de los meshes)
@@ -265,12 +326,11 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
     // No necesitamos syncWireframeTransformations porque los wireframes son hijos de los meshes
   });
 
-  // No renderizar nada hasta que el modelo esté completamente cargado
+  // No renderizar nada hasta que la URL esté validada
   // Si hay un error, el ErrorBoundary lo capturará y mostrará el fallback
-  // Si isLoading es true o no hay scene, retornar null (el Suspense maneja la carga)
-  if (isLoading || !scene) {
-    // Si hay un error de carga y ya no estamos cargando, lanzar error para el ErrorBoundary
-    if (loadError && !isLoading) {
+  if (!urlValidated) {
+    // Si hay un error de validación, lanzar error para el ErrorBoundary
+    if (loadError) {
       logger.uploadedModel.error("No se puede renderizar modelo debido a error:", loadError);
       // Lanzar error para que el ErrorBoundary lo capture
       throw new Error(loadError);
@@ -278,9 +338,15 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
     return null;
   }
 
-  // Usamos el componente Clone de drei que maneja mejor la clonación de escenas GLTF
-  // Importante: El Clone se añade al grupo padre, y Center calculará el bounding box correctamente
-  return <Clone ref={ref} object={scene} />;
+  // Renderizar ModelLoader que carga el modelo usando useLoader
+  // El Suspense en el componente padre maneja el estado de carga
+  return (
+    <group ref={ref}>
+      <Suspense fallback={null}>
+        <ModelLoader url={url} />
+      </Suspense>
+    </group>
+  );
 }
 
 export const Model3D: React.FC<Model3DProps> = ({ asset, autoRotate = false, doubleSide }) => {
