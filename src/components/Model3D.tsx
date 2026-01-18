@@ -95,10 +95,11 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
       return;
     }
     
-    logger.uploadedModel.debug("Validando URL antes de cargar:", url);
+    logger.uploadedModel.debug("Validando URL (no bloqueante):", url);
     setIsLoading(true);
     setLoadError(null);
-    setUrlValidated(false);
+    // Establecer validado inmediatamente para permitir carga (validación no bloqueante)
+    setUrlValidated(true);
 
     // Validar tanto blob URLs como URLs HTTP del servidor
     const validateUrl = async () => {
@@ -107,79 +108,48 @@ const UploadedModel = ({ url, autoRotate, doubleSide }: { url: string; autoRotat
         if (url.startsWith('blob:')) {
           const blobResponse = await fetch(url);
           if (!blobResponse.ok) {
-            const errorMsg = `Error al acceder al blob: ${blobResponse.status}`;
-            logger.uploadedModel.error(errorMsg);
-            setLoadError(errorMsg);
-            setIsLoading(false);
-            setUrlValidated(false);
+            logger.uploadedModel.warn(`Blob URL no accesible (status ${blobResponse.status}), pero intentando cargar de todas formas`);
             return;
           }
           const blob = await blobResponse.blob();
           if (blob.size === 0) {
-            const errorMsg = "El archivo blob está vacío";
-            logger.uploadedModel.error(errorMsg);
-            setLoadError(errorMsg);
-            setIsLoading(false);
-            setUrlValidated(false);
+            logger.uploadedModel.warn("Blob vacío detectado, pero intentando cargar de todas formas");
             return;
           }
           logger.uploadedModel.debug("Blob válido, tamaño:", blob.size, "bytes");
-          setUrlValidated(true);
           return;
         }
         
-        // Para URLs HTTP, intentar HEAD primero, luego GET si falla
-        // Algunos servidores no soportan HEAD, así que usamos GET con range para solo leer los primeros bytes
-        let response: Response;
+        // Para URLs HTTP, intentar HEAD con timeout corto (no bloqueante)
+        // Si falla, no importa - useLoader intentará cargar de todas formas
         try {
-          // Intentar HEAD primero (más eficiente)
-          response = await fetch(url, { 
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000); // Timeout corto: 2 segundos
+          
+          const response = await fetch(url, { 
             method: 'HEAD',
-            signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
+            signal: controller.signal
           });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok && response.status !== 206) {
+            logger.uploadedModel.debug(`URL responde con status ${response.status}, pero intentando cargar de todas formas`);
+          } else {
+            logger.uploadedModel.debug("URL validada correctamente");
+          }
         } catch (headError: any) {
-          // Si HEAD falla (algunos servidores no lo soportan), intentar GET con Range
-          logger.uploadedModel.debug("HEAD no disponible, usando GET con Range para validar");
-          response = await fetch(url, { 
-            method: 'GET',
-            headers: { 'Range': 'bytes=0-0' }, // Solo leer el primer byte
-            signal: AbortSignal.timeout(5000)
-          });
+          // Si falla la validación, no importa - permitir que useLoader intente cargar
+          if (headError.name !== 'AbortError') {
+            logger.uploadedModel.debug("Validación HEAD falló (no crítico), intentando cargar modelo:", headError.message);
+          }
         }
-        
-        if (!response.ok && response.status !== 206) { // 206 es Partial Content (normal para Range requests)
-          const errorMsg = `Error al acceder a la URL: ${response.status} ${response.statusText}`;
-          logger.uploadedModel.error(errorMsg);
-          setLoadError(errorMsg);
-          setIsLoading(false);
-          setUrlValidated(false);
-          return;
-        }
-        
-        // Verificar content-type si está disponible
-        const contentType = response.headers.get('content-type');
-        if (contentType && !contentType.includes('model/gltf') && !contentType.includes('model/gltf-binary') && !contentType.includes('application/octet-stream')) {
-          logger.uploadedModel.warn("Content-Type inesperado:", contentType, "- continuando de todas formas");
-        }
-        
-        logger.uploadedModel.debug("URL validada correctamente");
-        setUrlValidated(true);
       } catch (err: any) {
-        // Si el error es de CORS o red, dar más tiempo - puede que solo sea lento
-        if (err.name === 'TypeError' && err.message.includes('fetch')) {
-          logger.uploadedModel.warn("Posible problema de CORS o red, intentando cargar de todas formas:", err.message);
-          // Permitir continuar si es un problema de CORS (algunos servidores lo permiten solo en carga real)
-          setUrlValidated(true);
-          return;
+        // Cualquier error en la validación no impide cargar el modelo
+        // useLoader manejará los errores de carga real
+        if (err.name !== 'AbortError') {
+          logger.uploadedModel.debug("Error en validación (no crítico), intentando cargar modelo:", err.message);
         }
-        
-        const errorMsg = err.name === 'AbortError' 
-          ? `Timeout al validar la URL (el servidor no respondió a tiempo)`
-          : `Error validando URL: ${err.message}`;
-        logger.uploadedModel.error(errorMsg, err);
-        setLoadError(errorMsg);
-        setIsLoading(false);
-        setUrlValidated(false);
       }
     };
     
