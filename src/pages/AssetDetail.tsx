@@ -27,19 +27,32 @@ export const AssetDetail: React.FC = () => {
             setIsLoading(true);
             setIsInitialLoad(true); // Resetear la bandera de carga inicial
             try {
-                // Obtener asset desde el contexto (que viene del servidor)
-                const loadedAsset = await getAssetFull(id);
+                // Intentar obtener asset varias veces con retry
+                let loadedAsset: Asset | undefined = undefined;
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                while (!loadedAsset && attempts < maxAttempts) {
+                    loadedAsset = await getAssetFull(id);
+                    if (!loadedAsset || !loadedAsset.url) {
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            // Esperar un poco antes de reintentar
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                    }
+                }
                 
                 // Validar que el asset tiene una URL válida antes de renderizar
-                if (loadedAsset && loadedAsset.url) {
-                    logger.assetDetail.debug('Asset URL:', loadedAsset.url);
+                if (loadedAsset && loadedAsset.url && loadedAsset.url.trim() !== '') {
+                    logger.assetDetail.debug('Asset cargado correctamente, URL:', loadedAsset.url);
                     setAsset(loadedAsset);
                     // Sync global state with asset property on load
                     setViewerDoubleSide(!!loadedAsset.doubleSide);
                     // Marcar como carga completa después de un pequeño delay para evitar que se dispare el efecto de sincronización
                     setTimeout(() => setIsInitialLoad(false), 100);
                 } else {
-                    logger.assetDetail.error('Asset cargado pero sin URL válida:', loadedAsset);
+                    logger.assetDetail.error('Asset no encontrado o sin URL válida:', { id, asset: loadedAsset });
                     setAsset(undefined);
                     setIsInitialLoad(false);
                 }

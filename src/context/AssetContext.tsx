@@ -147,9 +147,48 @@ export function AssetProvider({ children }: { children: ReactNode }) {
         throw new Error('Error al subir el modelo al servidor');
       }
       
+      // Esperar un poco para que el servidor procese el archivo
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       // Recargar assets desde el servidor para obtener las URLs correctas
       const serverAssets = await syncFromServer();
+      logger.assetContext.debug(`Assets recargados después de subir: ${serverAssets.length}`);
       setAssets(serverAssets);
+      
+      // Verificar que el nuevo asset esté en la lista
+      const uploadedAsset = serverAssets.find(a => a.id === newAsset.id);
+      if (!uploadedAsset) {
+        logger.assetContext.warn(`Asset ${newAsset.id} no encontrado después de subir`);
+        // Intentar obtenerlo individualmente
+        if (SERVER_URL && SERVER_URL.trim() !== '') {
+          try {
+            const response = await fetch(`${SERVER_URL}/api/assets/${newAsset.id}`);
+            if (response.ok) {
+              const singleAsset = await response.json();
+              const fixUrl = (u: string | undefined) => {
+                if (!u) return '';
+                return u.startsWith('http') ? u : `${SERVER_URL}${u}`;
+              };
+              const assetWithUrls = {
+                ...singleAsset,
+                url: fixUrl(singleAsset.url),
+                thumbnail: fixUrl(singleAsset.thumbnail),
+                unityPackageUrl: singleAsset.unityPackageUrl ? fixUrl(singleAsset.unityPackageUrl) : undefined,
+                fbxZipUrl: singleAsset.fbxZipUrl ? fixUrl(singleAsset.fbxZipUrl) : undefined,
+              } as Asset;
+              setAssets(prev => {
+                const exists = prev.find(a => a.id === newAsset.id);
+                if (!exists) {
+                  return [...prev, assetWithUrls];
+                }
+                return prev.map(a => a.id === newAsset.id ? assetWithUrls : a);
+              });
+            }
+          } catch (error) {
+            logger.assetContext.error("Error obteniendo asset individual:", error);
+          }
+        }
+      }
       
       toast.success('Modelo subido correctamente');
     } catch (error) {
