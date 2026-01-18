@@ -91,8 +91,45 @@ export function AssetProvider({ children }: { children: ReactNode }) {
   };
 
   const getAssetFull = async (id: string): Promise<Asset | undefined> => {
-    // Obtener asset directamente del estado (ya tiene URLs del servidor)
-    return assets.find(a => a.id === id);
+    // Primero buscar en el estado
+    let asset = assets.find(a => a.id === id);
+    
+    // Si no está en el estado, intentar obtenerlo directamente del servidor
+    if (!asset && SERVER_URL && SERVER_URL.trim() !== '') {
+      try {
+        const response = await fetch(`${SERVER_URL}/api/assets/${id}`);
+        if (response.ok) {
+          const serverAsset = await response.json();
+          
+          // Construir URLs completas
+          const fixUrl = (u: string | undefined) => {
+            if (!u) return '';
+            return u.startsWith('http') ? u : `${SERVER_URL}${u}`;
+          };
+          
+          asset = {
+            ...serverAsset,
+            url: fixUrl(serverAsset.url),
+            thumbnail: fixUrl(serverAsset.thumbnail),
+            unityPackageUrl: serverAsset.unityPackageUrl ? fixUrl(serverAsset.unityPackageUrl) : undefined,
+            fbxZipUrl: serverAsset.fbxZipUrl ? fixUrl(serverAsset.fbxZipUrl) : undefined,
+          } as Asset;
+          
+          // Agregar al estado para futuras referencias
+          setAssets(prev => {
+            const exists = prev.find(a => a.id === id);
+            if (!exists) {
+              return [...prev, asset!];
+            }
+            return prev;
+          });
+        }
+      } catch (error) {
+        logger.assetContext.error("Error obteniendo asset del servidor:", error);
+      }
+    }
+    
+    return asset;
   };
 
   const addAsset = async (newAsset: Asset, files: { glb: File, thumbnail: File | null, unity: File | null, zip: File | null }) => {
