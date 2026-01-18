@@ -3,6 +3,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const rateLimit = require('express-rate-limit');
 const { validateFileType } = require('./fileValidation');
 
 const app = express();
@@ -12,8 +13,44 @@ const DB_FILE = path.join(__dirname, 'db.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // Middleware
-app.use(cors());
+// CORS restrictivo - solo permite orígenes específicos
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://localhost:3000', 'https://jesussc22.github.io'];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permitir requests sin origin (mobile apps, Postman, etc.) solo en desarrollo
+    if (!origin && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
+
+// Rate limiting para prevenir abuso
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 20, // máximo 20 peticiones por IP
+  message: 'Demasiadas peticiones desde esta IP, intenta de nuevo en 15 minutos.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const strictUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // máximo 10 uploads por IP
+  message: 'Demasiados uploads desde esta IP, intenta de nuevo en 15 minutos.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Servir archivos estáticos (modelos e imágenes)
 app.use('/uploads', express.static(UPLOADS_DIR));
 
@@ -78,6 +115,25 @@ function writeDB(data) {
  * Elimina archivos físicos asociados con un asset del disco
  * @param {Object} asset - El asset que contiene las rutas de los archivos
  */
+/**
+ * Valida que una ruta de archivo esté dentro del directorio permitido
+ * Previene path traversal attacks
+ */
+function validateFilePath(filePath) {
+  // Normalizar la ruta
+  const normalized = path.normalize(filePath);
+  // Resolver la ruta completa
+  const fullPath = path.resolve(UPLOADS_DIR, normalized);
+  const uploadsDirResolved = path.resolve(UPLOADS_DIR);
+  
+  // Verificar que la ruta normalizada esté dentro del directorio de uploads
+  if (!fullPath.startsWith(uploadsDirResolved)) {
+    throw new Error('Invalid file path: path traversal detected');
+  }
+  
+  return fullPath;
+}
+
 function deleteAssetFiles(asset) {
   if (!asset) return;
 
@@ -86,19 +142,25 @@ function deleteAssetFiles(asset) {
   
   fileProperties.forEach(prop => {
     if (asset[prop]) {
-      // Extraer el nombre del archivo de la ruta (ej: /uploads/file.jpg -> file.jpg)
-      const filePath = asset[prop].replace(/^\/uploads\//, '');
-      const fullPath = path.join(UPLOADS_DIR, filePath);
-      
-      // Verificar que el archivo existe antes de intentar eliminarlo
-      if (fs.existsSync(fullPath)) {
-        try {
-          fs.unlinkSync(fullPath);
-          console.log(`Archivo eliminado: ${fullPath}`);
-        } catch (error) {
-          // Log del error pero no fallar la operación si un archivo no se puede eliminar
-          console.error(`Error eliminando archivo ${fullPath}:`, error.message);
+      try {
+        // Extraer el nombre del archivo de la ruta (ej: /uploads/file.jpg -> file.jpg)
+        const filePath = asset[prop].replace(/^\/uploads\//, '');
+        // Validar y obtener la ruta segura
+        const fullPath = validateFilePath(filePath);
+        
+        // Verificar que el archivo existe antes de intentar eliminarlo
+        if (fs.existsSync(fullPath)) {
+          try {
+            fs.unlinkSync(fullPath);
+            console.log(`Archivo eliminado: ${fullPath}`);
+          } catch (error) {
+            // Log del error pero no fallar la operación si un archivo no se puede eliminar
+            console.error(`Error eliminando archivo ${fullPath}:`, error.message);
+          }
         }
+      } catch (error) {
+        // Si la validación de path falla, solo loguear el error
+        console.error(`Error validando ruta de archivo para ${prop}:`, error.message);
       }
     }
   });
@@ -107,7 +169,7 @@ function deleteAssetFiles(asset) {
 // --- Routes ---
 
 // GET /api/assets
-app.get('/api/assets', (req, res) => {
+app.get('/api/assets', uploadLimiter, (req, res) => {
   const db = readDB();
   // Transform local paths to full URLs if needed, or frontend handles it via base URL
   // Here we just send the data as is.
@@ -115,7 +177,7 @@ app.get('/api/assets', (req, res) => {
 });
 
 // GET /api/assets/:id
-app.get('/api/assets/:id', (req, res) => {
+app.get('/api/assets/:id', uploadLimiter, (req, res) => {
   const db = readDB();
   const asset = db.assets.find(a => a.id === req.params.id);
   if (asset) {
@@ -134,7 +196,7 @@ const cpUpload = upload.fields([
   { name: 'zip', maxCount: 1 }
 ]);
 
-app.post('/api/assets', (req, res, next) => {
+app.post('/api/assets', strictUploadLimiter, (req, res, next) => {
   cpUpload(req, res, (err) => {
     // Manejar errores de Multer (archivo demasiado grande, etc.)
     if (err) {
@@ -229,7 +291,7 @@ app.post('/api/assets', (req, res, next) => {
 });
 
 // PUT /api/assets/:id (Update metadata only)
-app.put('/api/assets/:id', (req, res) => {
+app.put('/api/assets/:id', uploadLimiter, (req, res) => {
   const db = readDB();
   const index = db.assets.findIndex(a => a.id === req.params.id);
   
@@ -244,7 +306,7 @@ app.put('/api/assets/:id', (req, res) => {
 });
 
 // PUT /api/assets/:id/files (Update files and optionally metadata)
-app.put('/api/assets/:id/files', (req, res, next) => {
+app.put('/api/assets/:id/files', strictUploadLimiter, (req, res, next) => {
   cpUpload(req, res, (err) => {
     // Manejar errores de Multer (archivo demasiado grande, etc.)
     if (err) {
@@ -367,7 +429,7 @@ app.put('/api/assets/:id/files', (req, res, next) => {
 });
 
 // DELETE /api/assets/:id
-app.delete('/api/assets/:id', (req, res) => {
+app.delete('/api/assets/:id', uploadLimiter, (req, res) => {
   const db = readDB();
   const initialLength = db.assets.length;
   const assetToDelete = db.assets.find(a => a.id === req.params.id);
